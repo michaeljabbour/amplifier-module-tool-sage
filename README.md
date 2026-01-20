@@ -18,12 +18,12 @@ Add to your bundle:
 ```yaml
 tools:
   - module: tool-sage
-    source: git+https://github.com/microsoft/amplifier-module-tool-sage@main
+    source: git+https://github.com/michaeljabbour/amplifier-module-tool-sage@main
     config:
       default_model: gemini-3-pro
 ```
 
-Or use the full bundle: [amplifier-bundle-sage](https://github.com/microsoft/amplifier-bundle-sage)
+Or use the full bundle: [amplifier-bundle-sage](https://github.com/michaeljabbour/amplifier-bundle-sage)
 
 ## Environment Variables
 
