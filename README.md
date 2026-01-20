@@ -20,7 +20,7 @@ tools:
   - module: tool-sage
     source: git+https://github.com/michaeljabbour/amplifier-module-tool-sage@main
     config:
-      default_model: gemini-3-pro
+      default_model: gemini-2.0-flash
 ```
 
 Or use the full bundle: [amplifier-bundle-sage](https://github.com/michaeljabbour/amplifier-bundle-sage)
@@ -227,7 +227,7 @@ The outcome matters more than speed.
 | `context` | object | goal, constraints, current_approach, concerns |
 | `session_context` | boolean | Include session history (default: true) |
 | `provider` | string | "gemini" (default) or "openai" |
-| `model` | string | Model to use (default: gemini-3-pro) |
+| `model` | string | Model to use (default: gemini-2.0-flash) |
 
 ---
 

@@ -1,36 +1,26 @@
-"""Google Gemini client for Sage."""
+"""Google Gemini client for Sage using the new google.genai SDK."""
 
 import asyncio
 import logging
 from typing import Any
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
 logger = logging.getLogger(__name__)
 
 
 class GeminiClient:
-    """Client for Google Gemini API."""
+    """Client for Google Gemini API using the new google.genai SDK."""
 
     def __init__(self, api_key: str):
         """Initialize the Gemini client."""
-        genai.configure(api_key=api_key)
-        self._models: dict[str, Any] = {}
-
-    def _get_model(self, model_name: str, system_prompt: str) -> Any:
-        """Get or create a model instance with the given system prompt."""
-        cache_key = f"{model_name}:{hash(system_prompt)}"
-        if cache_key not in self._models:
-            self._models[cache_key] = genai.GenerativeModel(
-                model_name=model_name,
-                system_instruction=system_prompt,
-            )
-        return self._models[cache_key]
+        self._client = genai.Client(api_key=api_key)
 
     async def complete(
         self,
         prompt: str,
-        model: str = "gemini-3-pro",
+        model: str = "gemini-2.0-flash",
         system_prompt: str = "You are a helpful assistant.",
         max_tokens: int = 4096,
     ) -> str:
@@ -39,23 +29,22 @@ class GeminiClient:
 
         Args:
             prompt: The user prompt
-            model: Gemini model name (default: gemini-3-pro)
+            model: Gemini model name (default: gemini-2.0-flash)
             system_prompt: System instructions
             max_tokens: Maximum output tokens
 
         Returns:
             The model's response text
         """
-        model_instance = self._get_model(model, system_prompt)
-
-        # Gemini SDK is synchronous, wrap for async
         loop = asyncio.get_event_loop()
 
         def sync_generate() -> str:
             try:
-                response = model_instance.generate_content(
-                    prompt,
-                    generation_config=genai.types.GenerationConfig(
+                response = self._client.models.generate_content(
+                    model=model,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        system_instruction=system_prompt,
                         max_output_tokens=max_tokens,
                     ),
                 )

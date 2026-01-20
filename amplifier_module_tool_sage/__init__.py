@@ -114,7 +114,7 @@ Sage accesses session history by default for additional context."""
         self.config = config
         self.coordinator = coordinator
         self.default_provider = config.get("default_provider", "gemini")
-        self.default_model = config.get("default_model", "gemini-3-pro")
+        self.default_model = config.get("default_model", "gemini-2.0-flash")
         self.max_tokens = config.get("max_tokens", 4096)
         self.max_session_messages = config.get("max_session_messages", 20)
         self._clients: dict[str, "AIClient"] = {}
@@ -170,7 +170,7 @@ Sage accesses session history by default for additional context."""
                 },
                 "model": {
                     "type": "string",
-                    "description": "Specific model to use (default: gemini-3-pro)",
+                    "description": "Specific model to use (default: gemini-2.0-flash)",
                 },
                 "max_tokens": {
                     "type": "integer",
@@ -354,7 +354,7 @@ Sage accesses session history by default for additional context."""
     def _get_fallback_model(self, provider: str) -> str:
         """Get default model for fallback provider."""
         if provider == "gemini":
-            return "gemini-3-pro"
+            return "gemini-2.0-flash"
         elif provider == "openai":
             return "gpt-4o"
         return "unknown"

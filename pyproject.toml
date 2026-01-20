@@ -1,13 +1,13 @@
 [project]
 name = "amplifier-module-tool-sage"
-version = "0.1.0"
+version = "0.1.1"
 description = "Strategic advisor tool for architecture, design, product, and outcome-focused decisions via Gemini and OpenAI"
 readme = "README.md"
 license = { text = "MIT" }
 requires-python = ">=3.11"
 dependencies = [
     "amplifier-core",
-    "google-generativeai>=0.8.0",
+    "google-genai>=1.0.0",
     "openai>=1.0.0",
 ]
 
