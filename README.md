@@ -4,28 +4,112 @@ Strategic advisor tool for Amplifier that provides direct, outcome-focused guida
 
 ## Overview
 
-Sage consults external AI providers (Gemini primary, OpenAI secondary) to provide:
+Sage consults AI providers (Gemini primary, OpenAI secondary) to provide:
 
 - **Direct recommendations** - No hedging, no "it depends" without specifics
 - **Outcome-focused guidance** - Every response ties to measurable outcomes
 - **Session-aware context** - Accesses conversation history for informed responses
 - **Zero fluff** - No marketing speak, no vague promises
 
-## Installation
+## Execution Modes
 
-Add to your bundle:
+Sage supports **dual execution modes** - use Amplifier's native provider system OR direct SDK access:
+
+| Mode | Description | When to Use |
+|------|-------------|-------------|
+| `native` | Uses Amplifier's mounted providers (`provider-gemini`, `provider-openai`) | Unified observability, centralized config |
+| `direct` | Uses SDK clients directly (`google-genai`, `openai`) | Self-contained, works without provider config |
+| `auto` | Tries native first, falls back to direct | **Default** - best of both worlds |
+
+### Native Mode
+
+Uses Amplifier's provider system. Requires providers to be mounted in your bundle:
+
+```yaml
+providers:
+  - module: provider-gemini
+    source: git+https://github.com/microsoft/amplifier-module-provider-gemini@main
+  - module: provider-openai
+    source: git+https://github.com/microsoft/amplifier-module-provider-openai@main
+
+tools:
+  - module: tool-sage
+    source: git+https://github.com/michaeljabbour/amplifier-module-tool-sage@main
+    config:
+      mode: native  # Explicitly use native providers
+```
+
+**Benefits:**
+- Unified observability through Amplifier's event system
+- Centralized provider configuration
+- Usage tracking alongside main session
+
+### Direct Mode
+
+Uses SDK clients directly. Self-contained, works without provider configuration:
 
 ```yaml
 tools:
   - module: tool-sage
     source: git+https://github.com/michaeljabbour/amplifier-module-tool-sage@main
     config:
-      default_model: gemini-2.0-flash
+      mode: direct  # Explicitly use SDK clients
+```
+
+**Benefits:**
+- Works out of the box with just API keys
+- Independent of session's provider configuration
+- Guaranteed access to Gemini/OpenAI regardless of bundle setup
+
+### Auto Mode (Default)
+
+Intelligently selects the best available option:
+
+1. Checks if requested provider is mounted in Amplifier
+2. If mounted → uses native mode (unified observability)
+3. If not mounted → falls back to direct SDK
+
+```yaml
+tools:
+  - module: tool-sage
+    source: git+https://github.com/michaeljabbour/amplifier-module-tool-sage@main
+    config:
+      mode: auto  # Default - tries native, falls back to direct
+```
+
+## Installation
+
+### Basic (Auto Mode)
+
+```yaml
+tools:
+  - module: tool-sage
+    source: git+https://github.com/michaeljabbour/amplifier-module-tool-sage@main
+```
+
+### With Native Providers
+
+```yaml
+providers:
+  - module: provider-gemini
+    source: git+https://github.com/microsoft/amplifier-module-provider-gemini@main
+  - module: provider-openai
+    source: git+https://github.com/microsoft/amplifier-module-provider-openai@main
+
+tools:
+  - module: tool-sage
+    source: git+https://github.com/michaeljabbour/amplifier-module-tool-sage@main
+    config:
+      mode: native
+      default_provider: gemini
+      fallback_provider: openai
 ```
 
 Or use the full bundle: [amplifier-bundle-sage](https://github.com/michaeljabbour/amplifier-bundle-sage)
 
 ## Environment Variables
+
+Required for **direct mode** or when native providers aren't configured:
 
 ```bash
 # Required for Gemini (primary)
@@ -34,6 +118,72 @@ export GOOGLE_API_KEY=your-gemini-api-key
 # Optional for OpenAI (secondary/fallback)
 export OPENAI_API_KEY=your-openai-api-key
 ```
+
+**Note:** In native mode, providers handle their own API key management.
+
+---
+
+## Tool Usage
+
+### Basic
+
+```json
+{
+  "question": "Should we use PostgreSQL or MongoDB?"
+}
+```
+
+### With Mode Selection
+
+```json
+{
+  "question": "Should we use PostgreSQL or MongoDB?",
+  "mode": "native",
+  "provider": "gemini"
+}
+```
+
+### With Full Context (Recommended)
+
+```json
+{
+  "question": "Should we use PostgreSQL or MongoDB?",
+  "domain": "architecture",
+  "mode": "auto",
+  "context": {
+    "goal": "Support 10k DAU with flexible schema evolution",
+    "constraints": ["2 engineers", "3 month timeline", "Django app"],
+    "current_approach": "Leaning toward MongoDB",
+    "concerns": ["query complexity", "ORM compatibility"]
+  }
+}
+```
+
+### Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `question` | string | **Required.** The question to answer |
+| `mode` | string | `native`, `direct`, or `auto` (default: auto) |
+| `domain` | string | architecture, design, product, implementation, outcomes |
+| `context` | object | goal, constraints, current_approach, concerns |
+| `session_context` | boolean | Include session history (default: true) |
+| `provider` | string | `gemini` (default) or `openai` |
+| `model` | string | Model to use (default: gemini-2.0-flash) |
+| `max_tokens` | integer | Maximum tokens in response (default: 4096) |
+
+---
+
+## Configuration Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `mode` | string | `auto` | Execution mode: `native`, `direct`, `auto` |
+| `default_provider` | string | `gemini` | Primary provider to consult |
+| `fallback_provider` | string | `openai` | Fallback if primary fails |
+| `default_model` | string | `gemini-2.0-flash` | Default model |
+| `max_tokens` | integer | `4096` | Default max tokens |
+| `max_session_messages` | integer | `20` | Max session messages for context |
 
 ---
 
@@ -157,77 +307,6 @@ Consult sage when:
 "Continue until the outcome is achieved"
 "Don't stop until all tests pass"
 ```
-
-### Full-Day Session Example
-
-```
-Build the complete MVP from @project:docs/mvp-spec.md
-
-OUTCOME:
-- All features working
-- Critical paths tested
-- Basic docs
-- Deployable to staging
-
-APPROACH:
-1. Read full spec, create todo list
-2. Consult sage to validate implementation order
-3. Build each feature with tests
-4. On design decisions, consult sage
-5. After each major feature, verify integration
-6. Before delivery, full review with sage
-
-CONSTRAINTS:
-- Follow existing patterns
-- No known bugs in delivered features
-- Core flows documented
-
-CHECKPOINTS:
-- Commit after each feature
-- Every 2-3 features, assess progress with sage
-- Final sage review before marking complete
-
-Take the time needed. Consult sage freely. 
-The outcome matters more than speed.
-```
-
----
-
-## Tool Usage
-
-### Basic
-
-```json
-{
-  "question": "Should we use PostgreSQL or MongoDB?"
-}
-```
-
-### With Context (Recommended)
-
-```json
-{
-  "question": "Should we use PostgreSQL or MongoDB?",
-  "domain": "architecture",
-  "context": {
-    "goal": "Support 10k DAU with flexible schema evolution",
-    "constraints": ["2 engineers", "3 month timeline", "Django app"],
-    "current_approach": "Leaning toward MongoDB",
-    "concerns": ["query complexity", "ORM compatibility"]
-  }
-}
-```
-
-### Parameters
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `question` | string | **Required.** The question to answer |
-| `domain` | string | architecture, design, product, implementation, outcomes |
-| `context` | object | goal, constraints, current_approach, concerns |
-| `session_context` | boolean | Include session history (default: true) |
-| `provider` | string | "gemini" (default) or "openai" |
-| `model` | string | Model to use (default: gemini-2.0-flash) |
 
 ---
 

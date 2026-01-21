@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-from typing import Any
 
 from google import genai
 from google.genai import types
@@ -48,7 +47,7 @@ class GeminiClient:
                         max_output_tokens=max_tokens,
                     ),
                 )
-                return response.text
+                return response.text or ""
             except Exception as e:
                 logger.error(f"Gemini generation failed: {e}")
                 raise
