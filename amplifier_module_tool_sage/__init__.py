@@ -312,6 +312,9 @@ Sage provides:
         self.max_tokens = config.get("max_tokens", 4096)
         self.max_session_messages = config.get("max_session_messages", 20)
 
+        # Decision memory integration
+        self.auto_record_decisions = config.get("auto_record_decisions", False)
+
         # Direct mode clients (lazy initialized)
         self._direct_clients: dict[str, "AIClient"] = {}
 
@@ -397,6 +400,13 @@ Sage provides:
                 "max_tokens": {
                     "type": "integer",
                     "description": "Maximum tokens in response (default: 4096)",
+                },
+                "record_decision": {
+                    "type": "boolean",
+                    "description": (
+                        "Record this consultation to decision memory (default: auto_record_decisions config). "
+                        "Requires decision_memory module to be mounted."
+                    ),
                 },
             },
             "required": ["question"],
@@ -687,6 +697,40 @@ Sage provides:
         return "\n".join(prompt_parts)
 
     # =========================================================================
+    # Decision Memory Integration
+    # =========================================================================
+
+    async def _record_to_memory(self, question: str, domain: str, response: str, context: dict) -> str | None:
+        """Record a consultation to decision memory if available."""
+        try:
+            record_capability = self.coordinator.get_capability("decisions.record")
+            if not record_capability:
+                logger.debug("Decision memory not available - skipping record")
+                return None
+
+            # Extract recommendation from response (first paragraph or up to 500 chars)
+            recommendation = response.split("\n\n")[0][:500]
+            if len(recommendation) == 500:
+                recommendation = recommendation.rsplit(" ", 1)[0] + "..."
+
+            decision = {
+                "domain": domain,
+                "question": question,
+                "recommendation": recommendation,
+                "context": context,
+                "tags": ["sage", f"format:{context.get('format', 'text')}"],
+            }
+
+            decision_id = await record_capability(decision)
+            if decision_id:
+                logger.info(f"Recorded decision {decision_id} to memory")
+            return decision_id
+
+        except Exception as e:
+            logger.warning(f"Failed to record decision to memory: {e}")
+            return None
+
+    # =========================================================================
     # Main Execute
     # =========================================================================
 
@@ -710,6 +754,9 @@ Sage provides:
         include_follow_up = input.get("include_follow_up", True)
         include_session = input.get("session_context", True)
         max_tokens = input.get("max_tokens", self.max_tokens)
+
+        # Decision recording - use explicit param or fall back to config
+        should_record = input.get("record_decision", self.auto_record_decisions)
 
         # Get session context if requested
         session_context = ""
@@ -735,13 +782,14 @@ Sage provides:
         )
 
         # Execute based on mode
+        result: ToolResult | None = None
         try:
             if resolved_mode == "native":
-                return await self._execute_native(
+                result = await self._execute_native(
                     provider_name, model, system_prompt, user_prompt, max_tokens, domain, response_format
                 )
             else:  # direct
-                return await self._execute_direct(
+                result = await self._execute_direct(
                     provider_name, model, system_prompt, user_prompt, max_tokens, domain, response_format
                 )
 
@@ -787,8 +835,6 @@ Sage provides:
                         f"due to {provider_name} error: {str(primary_error)}"
                     )
 
-                return result
-
             except Exception as fallback_error:
                 logger.error(f"Fallback also failed: {fallback_error}")
                 return ToolResult(
@@ -800,3 +846,13 @@ Sage provides:
                         )
                     },
                 )
+
+        # Record to decision memory if successful and recording is enabled
+        if result and result.success and should_record and result.output:
+            response_text = result.output.get("response", "")
+            decision_id = await self._record_to_memory(question, domain, response_text, context)
+            if decision_id:
+                result.output["decision_id"] = decision_id
+                result.output["decision_recorded"] = True
+
+        return result if result else ToolResult(success=False, error={"message": "No result from consultation"})
