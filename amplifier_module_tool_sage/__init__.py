@@ -26,53 +26,191 @@ logger = logging.getLogger(__name__)
 # Execution modes
 ExecutionMode = Literal["native", "direct", "auto"]
 
-# The system prompt that shapes Sage's responses
-SAGE_SYSTEM_PROMPT = """You are Sage, a direct strategic advisor for software architecture, \
-design, and product decisions.
+# Response formats
+ResponseFormat = Literal["text", "json", "markdown", "bullets", "mermaid", "tradeoff_matrix"]
 
-## Your Core Principles
+# =========================================================================
+# Domain-Specific System Prompts
+# =========================================================================
 
-1. **ZERO FLUFF** - No marketing speak, no hedging, no "it depends" without specifics. Be direct.
+SAGE_BASE_PROMPT = """You are Sage, a direct strategic advisor. Your core principles:
 
-2. **OUTCOMES FIRST** - Every recommendation ties to a measurable outcome. Ask: "What does success look like?"
+1. **ZERO FLUFF** - No marketing speak, no hedging, no "it depends" without specifics.
+2. **OUTCOMES FIRST** - Every recommendation ties to a measurable outcome.
+3. **CONFIDENT GUIDANCE** - Give clear recommendations. Ask specific questions if needed.
+4. **TRADEOFFS ARE EXPLICIT** - State actual tradeoffs with specifics, not vague pros/cons.
+5. **REDIRECT TO OUTCOMES** - Pull back to outcomes when discussions drift.
 
-3. **CONFIDENT GUIDANCE** - Give clear recommendations. If you need more info, ask specific questions.
-
-4. **TRADEOFFS ARE EXPLICIT** - When presenting options, state the actual tradeoffs with specifics, \
-not vague pros/cons.
-
-5. **REDIRECT TO OUTCOMES** - If a question is getting into weeds, pull back to: \
-"What outcome are we trying to achieve here?"
-
-## Response Format
-
-For architecture/design questions:
-- State your recommendation clearly upfront
-- Explain WHY in 2-3 sentences
-- List specific tradeoffs if relevant
-- End with the outcome this achieves
-
-For product questions:
-- Clarify the user outcome first
-- Recommend the simplest path to that outcome
-- Flag complexity that doesn't serve the outcome
-
-## What NOT to Do
-
+What NOT to do:
 - Don't say "it depends" without immediately following with specifics
 - Don't list options without a recommendation
 - Don't use phrases like "consider", "might want to", "could potentially"
 - Don't pad responses with caveats and disclaimers
 - Don't repeat the question back
-- Don't use marketing language or buzzwords
+"""
 
-## Session Context
+DOMAIN_PROMPTS = {
+    "architecture": """## Architecture Domain
 
-You may receive conversation history. Use it to:
-- Understand what's already been discussed
-- Avoid retreading covered ground
-- Build on existing decisions
-- Identify if the discussion is drifting from outcomes
+You're advising on system architecture decisions. Focus on:
+- Scalability patterns and their concrete tradeoffs
+- Component boundaries and coupling
+- Data flow and consistency models
+- Infrastructure choices and their operational costs
+
+When recommending:
+1. State the architecture pattern clearly
+2. Explain WHY it fits THIS situation (not generic benefits)
+3. List concrete tradeoffs (latency vs consistency, complexity vs flexibility)
+4. Specify what changes if requirements shift
+""",
+    "design": """## Design Domain
+
+You're advising on software design decisions. Focus on:
+- API design and contracts
+- Data modeling and schema decisions
+- Design patterns and when they apply
+- Code organization and module boundaries
+
+When recommending:
+1. State the design approach
+2. Show how it simplifies the problem
+3. Identify complexity it introduces
+4. Provide concrete implementation guidance
+""",
+    "product": """## Product Domain
+
+You're advising on product decisions. Focus on:
+- User outcomes, not features
+- Simplest path to validate assumptions
+- Scope that matches resources
+- Metrics that indicate success
+
+When recommending:
+1. Clarify the user problem being solved
+2. Recommend minimum viable scope
+3. Flag complexity that doesn't serve the outcome
+4. Suggest how to measure success
+""",
+    "implementation": """## Implementation Domain
+
+You're advising on implementation decisions. Focus on:
+- Concrete technical approaches
+- Library/framework selection
+- Performance considerations
+- Testing and reliability strategies
+
+When recommending:
+1. Recommend specific technologies
+2. Explain integration complexity
+3. Identify maintenance burden
+4. Suggest incremental implementation steps
+""",
+    "outcomes": """## Outcomes Domain
+
+You're helping clarify and define outcomes. Focus on:
+- What success looks like concretely
+- How to measure progress
+- Alignment between stated goals and proposed solutions
+- Identifying unstated assumptions
+
+When advising:
+1. Help articulate concrete success criteria
+2. Identify metrics that would indicate progress
+3. Surface conflicts between goals
+4. Recommend prioritization when goals compete
+""",
+    "general": """## General Consultation
+
+Provide direct strategic guidance. Identify the core decision needed and give a clear recommendation.
+""",
+}
+
+# =========================================================================
+# Response Format Instructions
+# =========================================================================
+
+FORMAT_INSTRUCTIONS = {
+    "text": "",  # Default, no special instructions
+    "json": """
+**OUTPUT FORMAT**: Respond with valid JSON only. Structure:
+```json
+{
+  "recommendation": "Your clear recommendation",
+  "reasoning": "Why this recommendation",
+  "tradeoffs": ["tradeoff 1", "tradeoff 2"],
+  "outcome": "What this achieves",
+  "follow_up_questions": ["question 1", "question 2"]
+}
+```
+""",
+    "markdown": """
+**OUTPUT FORMAT**: Use structured markdown with clear headers:
+## Recommendation
+[Your recommendation]
+
+## Reasoning
+[Why]
+
+## Tradeoffs
+- [Tradeoff 1]
+- [Tradeoff 2]
+
+## Outcome
+[What this achieves]
+""",
+    "bullets": """
+**OUTPUT FORMAT**: Use concise bullet points:
+• **Recommendation**: [one sentence]
+• **Why**: [one sentence]
+• **Tradeoffs**: [comma-separated list]
+• **Outcome**: [one sentence]
+""",
+    "mermaid": """
+**OUTPUT FORMAT**: Include a Mermaid diagram that visualizes the recommendation.
+For architecture questions, use flowchart or C4 diagrams.
+For process questions, use sequence or flowchart diagrams.
+For data questions, use ER diagrams.
+
+Wrap diagrams in ```mermaid fences. Follow the diagram with a brief explanation.
+
+Example:
+```mermaid
+flowchart TD
+    A[Client] --> B[API Gateway]
+    B --> C[Service A]
+    B --> D[Service B]
+```
+
+[Brief explanation of the diagram and recommendation]
+""",
+    "tradeoff_matrix": """
+**OUTPUT FORMAT**: Present your analysis as a tradeoff matrix table.
+
+First state your recommendation, then provide the matrix:
+
+| Option | Pros | Cons | Best When | Risk Level |
+|--------|------|------|-----------|------------|
+| Option A | ... | ... | ... | Low/Med/High |
+| Option B | ... | ... | ... | Low/Med/High |
+
+**Recommendation**: [Which option and why]
+**Key Differentiator**: [The deciding factor]
+""",
+}
+
+# =========================================================================
+# Follow-up Suggestions Template
+# =========================================================================
+
+FOLLOW_UP_INSTRUCTION = """
+After your main response, suggest 2-3 follow-up questions the user might want to explore.
+Format as:
+
+**Want to go deeper?**
+- [Follow-up question 1]
+- [Follow-up question 2]
+- [Follow-up question 3]
 """
 
 # Default models per provider
@@ -80,6 +218,26 @@ DEFAULT_MODELS = {
     "gemini": "gemini-2.0-flash",
     "openai": "gpt-4o",
 }
+
+
+def _build_system_prompt(domain: str, response_format: ResponseFormat, include_follow_up: bool) -> str:
+    """Build the complete system prompt based on domain and format."""
+    parts = [SAGE_BASE_PROMPT]
+
+    # Add domain-specific guidance
+    domain_prompt = DOMAIN_PROMPTS.get(domain, DOMAIN_PROMPTS["general"])
+    parts.append(domain_prompt)
+
+    # Add format instructions
+    format_instruction = FORMAT_INSTRUCTIONS.get(response_format, "")
+    if format_instruction:
+        parts.append(format_instruction)
+
+    # Add follow-up instruction if requested
+    if include_follow_up and response_format != "json":  # JSON has its own follow_up field
+        parts.append(FOLLOW_UP_INSTRUCTION)
+
+    return "\n".join(parts)
 
 
 async def mount(coordinator: ModuleCoordinator, config: dict[str, Any] | None = None):
@@ -107,37 +265,36 @@ Sage provides:
 - Clear recommendations (not wishy-washy options)
 - Explicit tradeoffs with specifics
 - Guidance tied to measurable outcomes
-- Redirection when discussions drift from goals
+- Multiple response formats for different needs
+
+**Response Formats:**
+- `text`: Natural prose (default)
+- `json`: Structured JSON for programmatic use
+- `markdown`: Structured markdown with headers
+- `bullets`: Concise bullet points
+- `mermaid`: Visual diagrams (architecture, flow, data)
+- `tradeoff_matrix`: Comparison tables for options
 
 **Execution Modes:**
-- `native`: Use Amplifier's mounted providers (unified observability)
-- `direct`: Use SDK clients directly (self-contained, works without provider config)
+- `native`: Use Amplifier's mounted providers
+- `direct`: Use SDK clients directly
 - `auto`: Try native first, fall back to direct (default)
-
-**For best results, provide structured context:**
-
-- **goal**: What outcome are you trying to achieve?
-- **constraints**: Time, resources, technical limitations
-- **current_approach**: What's being considered
-- **concerns**: Specific uncertainties
 
 **Example:**
 ```json
 {
   "question": "Should we use a microservices or monolith architecture?",
   "domain": "architecture",
-  "mode": "auto",
+  "format": "tradeoff_matrix",
   "context": {
     "goal": "Ship MVP in 6 weeks with 2 engineers",
-    "constraints": ["small team", "tight timeline", "uncertain requirements"],
+    "constraints": ["small team", "tight timeline"],
     "concerns": ["scaling later", "team velocity"]
   }
 }
 ```
 
-**Domains:** architecture, design, product, implementation, outcomes
-
-Sage accesses session history by default for additional context."""
+**Domains:** architecture, design, product, implementation, outcomes"""
 
     def __init__(self, config: dict[str, Any], coordinator: ModuleCoordinator):
         self.config = config
@@ -173,6 +330,15 @@ Sage accesses session history by default for additional context."""
                     "enum": ["architecture", "design", "product", "implementation", "outcomes"],
                     "description": "Primary domain of the question (default: inferred from question)",
                 },
+                "format": {
+                    "type": "string",
+                    "enum": ["text", "json", "markdown", "bullets", "mermaid", "tradeoff_matrix"],
+                    "description": (
+                        "Response format: 'text' (prose), 'json' (structured), 'markdown' (headers), "
+                        "'bullets' (concise), 'mermaid' (diagrams), 'tradeoff_matrix' (comparison table). "
+                        "Default: text"
+                    ),
+                },
                 "mode": {
                     "type": "string",
                     "enum": ["native", "direct", "auto"],
@@ -203,7 +369,16 @@ Sage accesses session history by default for additional context."""
                             "items": {"type": "string"},
                             "description": "Specific worries or uncertainties",
                         },
+                        "codebase_path": {
+                            "type": "string",
+                            "description": "Path to codebase for code-aware consultation (requires RLM)",
+                        },
                     },
+                },
+                "include_follow_up": {
+                    "type": "boolean",
+                    "default": True,
+                    "description": "Include follow-up question suggestions (default: true)",
                 },
                 "session_context": {
                     "type": "boolean",
@@ -243,23 +418,12 @@ Sage accesses session history by default for additional context."""
         return self.coordinator.get("providers", provider_name)
 
     def _resolve_mode(self, requested_mode: ExecutionMode, provider_name: str) -> ExecutionMode:
-        """Resolve the actual execution mode based on request and availability.
-
-        Args:
-            requested_mode: The mode requested (native/direct/auto)
-            provider_name: The provider to use
-
-        Returns:
-            The resolved mode to use
-        """
+        """Resolve the actual execution mode based on request and availability."""
         if requested_mode == "native":
-            # User explicitly wants native - will fail if not available
             return "native"
         elif requested_mode == "direct":
-            # User explicitly wants direct SDK
             return "direct"
         else:  # auto
-            # Try native first, fall back to direct
             if self._is_native_provider_available(provider_name):
                 logger.debug(f"Auto mode: using native provider '{provider_name}'")
                 return "native"
@@ -275,14 +439,13 @@ Sage accesses session history by default for additional context."""
         self,
         provider_name: str,
         model: str,
-        full_prompt: str,
+        system_prompt: str,
+        user_prompt: str,
         max_tokens: int,
         domain: str,
+        response_format: ResponseFormat,
     ) -> ToolResult:
-        """Execute consultation using Amplifier's native provider system.
-
-        Uses ChatRequest/ChatResponse models for unified observability.
-        """
+        """Execute consultation using Amplifier's native provider system."""
         from amplifier_core.message_models import ChatRequest, Message
 
         provider = self._get_native_provider(provider_name)
@@ -297,19 +460,15 @@ Sage accesses session history by default for additional context."""
             )
 
         try:
-            # Build ChatRequest using Amplifier's message models
             request = ChatRequest(
                 messages=[
-                    Message(role="system", content=SAGE_SYSTEM_PROMPT),
-                    Message(role="user", content=full_prompt),
+                    Message(role="system", content=system_prompt),
+                    Message(role="user", content=user_prompt),
                 ],
                 max_output_tokens=max_tokens,
             )
 
-            # Call the provider
             response = await provider.complete(request, model=model)
-
-            # Extract text from response content blocks
             response_text = self._extract_text_from_response(response)
 
             return ToolResult(
@@ -319,6 +478,7 @@ Sage accesses session history by default for additional context."""
                     "provider": provider_name,
                     "model": model,
                     "domain": domain,
+                    "format": response_format,
                     "response": response_text,
                     "usage": response.usage.model_dump() if response.usage else None,
                 },
@@ -334,9 +494,6 @@ Sage accesses session history by default for additional context."""
         for block in response.content:
             if hasattr(block, "text"):
                 text_parts.append(block.text)
-            elif hasattr(block, "thinking"):
-                # Include thinking blocks if present
-                pass  # Skip thinking for now, just return main response
         return "".join(text_parts)
 
     # =========================================================================
@@ -375,17 +532,19 @@ Sage accesses session history by default for additional context."""
         self,
         provider_name: str,
         model: str,
-        full_prompt: str,
+        system_prompt: str,
+        user_prompt: str,
         max_tokens: int,
         domain: str,
+        response_format: ResponseFormat,
     ) -> ToolResult:
         """Execute consultation using direct SDK clients."""
         try:
             client = self._get_direct_client(provider_name)
             response = await client.complete(
-                prompt=full_prompt,
+                prompt=user_prompt,
                 model=model,
-                system_prompt=SAGE_SYSTEM_PROMPT,
+                system_prompt=system_prompt,
                 max_tokens=max_tokens,
             )
 
@@ -396,6 +555,7 @@ Sage accesses session history by default for additional context."""
                     "provider": provider_name,
                     "model": model,
                     "domain": domain,
+                    "format": response_format,
                     "response": response,
                 },
             )
@@ -419,17 +579,14 @@ Sage accesses session history by default for additional context."""
             if not messages:
                 return ""
 
-            # Get recent messages
             max_messages = self.max_session_messages
             recent = messages[-max_messages:] if len(messages) > max_messages else messages
 
-            # Format for Sage
             formatted = []
             for msg in recent:
                 role = msg.get("role", "unknown")
                 content = msg.get("content", "")
 
-                # Handle content blocks (list of dicts with type/text)
                 if isinstance(content, list):
                     text_parts = []
                     for block in content:
@@ -437,7 +594,6 @@ Sage accesses session history by default for additional context."""
                             text_parts.append(block.get("text", ""))
                     content = " ".join(text_parts)
 
-                # Truncate very long messages
                 if len(content) > 1000:
                     content = content[:1000] + "... [truncated]"
 
@@ -451,11 +607,47 @@ Sage accesses session history by default for additional context."""
             return ""
 
     # =========================================================================
+    # Codebase Context (RLM Integration)
+    # =========================================================================
+
+    async def _get_codebase_context(self, codebase_path: str, question: str) -> str:
+        """Use RLM to extract relevant codebase context for the question."""
+        try:
+            # Check if RLM tool is available
+            tools = self.coordinator.get("tools")
+            if not tools or "rlm" not in tools:
+                logger.warning("RLM tool not available - codebase context skipped")
+                return ""
+
+            rlm_tool = tools["rlm"]
+
+            # Query RLM for relevant facts
+            result = await rlm_tool.execute(
+                {
+                    "file_path": codebase_path,
+                    "query": f"Extract architecture and design facts relevant to answering: {question}",
+                    "content_type": "code",
+                }
+            )
+
+            if result.success and result.output:
+                return result.output.get("answer", "")
+            else:
+                logger.warning(f"RLM query failed: {result.error}")
+                return ""
+
+        except Exception as e:
+            logger.warning(f"Failed to get codebase context: {e}")
+            return ""
+
+    # =========================================================================
     # Prompt Building
     # =========================================================================
 
-    def _build_prompt(self, question: str, domain: str, context: dict, session_context: str) -> str:
-        """Build the full prompt for Sage consultation."""
+    def _build_user_prompt(
+        self, question: str, domain: str, context: dict, session_context: str, codebase_context: str
+    ) -> str:
+        """Build the user prompt for Sage consultation."""
         prompt_parts = []
 
         # Add domain focus
@@ -481,6 +673,10 @@ Sage accesses session history by default for additional context."""
                 else:
                     prompt_parts.append(f"- **Concerns**: {concerns}")
 
+        # Add codebase context if available
+        if codebase_context:
+            prompt_parts.append(f"\n**CODEBASE FACTS** (from analysis):\n{codebase_context}")
+
         # Add session history if available
         if session_context:
             prompt_parts.append(f"\n**SESSION HISTORY** (for context):\n\n{session_context}")
@@ -495,13 +691,7 @@ Sage accesses session history by default for additional context."""
     # =========================================================================
 
     async def execute(self, input: dict[str, Any]) -> ToolResult:
-        """Execute the Sage consultation.
-
-        Supports three modes:
-        - native: Uses Amplifier's mounted providers
-        - direct: Uses SDK clients directly
-        - auto: Tries native first, falls back to direct
-        """
+        """Execute the Sage consultation."""
         question = input.get("question")
         if not question:
             return ToolResult(success=False, error={"message": "Question is required"})
@@ -516,6 +706,8 @@ Sage accesses session history by default for additional context."""
         )
         context = input.get("context", {})
         domain = input.get("domain", "general")
+        response_format: ResponseFormat = input.get("format", "text")
+        include_follow_up = input.get("include_follow_up", True)
         include_session = input.get("session_context", True)
         max_tokens = input.get("max_tokens", self.max_tokens)
 
@@ -524,20 +716,34 @@ Sage accesses session history by default for additional context."""
         if include_session:
             session_context = await self._get_session_context()
 
-        # Build the full prompt
-        full_prompt = self._build_prompt(question, domain, context, session_context)
+        # Get codebase context if path provided
+        codebase_context = ""
+        codebase_path = context.get("codebase_path")
+        if codebase_path:
+            codebase_context = await self._get_codebase_context(codebase_path, question)
+
+        # Build prompts
+        system_prompt = _build_system_prompt(domain, response_format, include_follow_up)
+        user_prompt = self._build_user_prompt(question, domain, context, session_context, codebase_context)
 
         # Resolve execution mode
         resolved_mode = self._resolve_mode(requested_mode, provider_name)
 
-        logger.info(f"Sage consultation: mode={resolved_mode}, provider={provider_name}, model={model}")
+        logger.info(
+            f"Sage consultation: mode={resolved_mode}, provider={provider_name}, "
+            f"model={model}, format={response_format}"
+        )
 
         # Execute based on mode
         try:
             if resolved_mode == "native":
-                return await self._execute_native(provider_name, model, full_prompt, max_tokens, domain)
+                return await self._execute_native(
+                    provider_name, model, system_prompt, user_prompt, max_tokens, domain, response_format
+                )
             else:  # direct
-                return await self._execute_direct(provider_name, model, full_prompt, max_tokens, domain)
+                return await self._execute_direct(
+                    provider_name, model, system_prompt, user_prompt, max_tokens, domain, response_format
+                )
 
         except Exception as primary_error:
             logger.error(f"Primary execution failed ({resolved_mode}/{provider_name}): {primary_error}")
@@ -547,7 +753,6 @@ Sage accesses session history by default for additional context."""
                 self.fallback_provider if provider_name != self.fallback_provider else self.default_provider
             )
             if fallback_provider == provider_name:
-                # No different fallback available
                 return ToolResult(success=False, error={"message": f"Sage consultation failed: {str(primary_error)}"})
 
             logger.info(f"Attempting fallback to {fallback_provider}")
@@ -557,14 +762,25 @@ Sage accesses session history by default for additional context."""
             try:
                 if fallback_mode == "native":
                     result = await self._execute_native(
-                        fallback_provider, fallback_model, full_prompt, max_tokens, domain
+                        fallback_provider,
+                        fallback_model,
+                        system_prompt,
+                        user_prompt,
+                        max_tokens,
+                        domain,
+                        response_format,
                     )
                 else:
                     result = await self._execute_direct(
-                        fallback_provider, fallback_model, full_prompt, max_tokens, domain
+                        fallback_provider,
+                        fallback_model,
+                        system_prompt,
+                        user_prompt,
+                        max_tokens,
+                        domain,
+                        response_format,
                     )
 
-                # Add fallback note
                 if result.success and result.output:
                     result.output["note"] = (
                         f"Used fallback provider ({fallback_provider}) "
