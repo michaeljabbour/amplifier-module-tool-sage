@@ -12,7 +12,7 @@ dependencies = [
 ]
 
 [project.entry-points."amplifier.modules"]
-tool-sage = "amplifier_module_tool_sage"
+tool-sage = "amplifier_module_tool_sage:mount"
 
 [build-system]
 requires = ["hatchling"]
